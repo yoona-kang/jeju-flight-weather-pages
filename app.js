@@ -156,6 +156,12 @@ async function boot(){
     else if(data.suggestions.length)await searchFlight(data.suggestions[0].flight,data.suggestions[0].date);
     else empty('항공편을 조회해 주세요.',data.errors[0]?.message||'제주 출발 항공편명과 탑승 날짜를 입력해 주세요.');
     state.timer=setInterval(()=>{if(!document.hidden&&state.result&&!$('search-button').disabled&&normalizeFlight($('flight-number').value)===state.result.flight.flight&&$('departure-date').value===state.result.flight.date)searchFlight(state.result.flight.flight,state.result.flight.date,{background:true});},data.refresh_seconds*1000);
-  }catch(error){$('connection-status').querySelector('span').textContent='연결 확인 중';$('connection-status').classList.add('pending');empty('실시간 정보를 연결하고 있어요.',error.name==='TimeoutError'?'잠시 후 다시 조회해 주세요.':error.message,true);}
+  }catch(error){
+    const configured=error.code!=='api_not_configured';
+    $('connection-status').querySelector('span').textContent=configured?'연결 확인 중':'조회 준비 중';
+    $('connection-status').classList.add('pending');
+    if(!configured){$('search-button').disabled=true;$('schedule-note').textContent='실시간 조회 연결이 완료되면 이용할 수 있어요.';}
+    empty('실시간 정보를 연결하고 있어요.',error.name==='TimeoutError'?'잠시 후 다시 조회해 주세요.':error.message,configured);
+  }
 }
 boot();
