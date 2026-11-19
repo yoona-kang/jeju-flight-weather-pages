@@ -30,7 +30,7 @@ function renderCompleteFlights(data) {
   for(const f of state.completeFlights){
     const button=document.createElement('button');button.type='button';button.className='example-button complete-flight';
     const name=document.createElement('b');name.textContent=`${f.flight} · ${f.destination}`;
-    const time=document.createElement('span');time.textContent=`${f.departure_time} · 6/6 확인`;
+    const time=document.createElement('span');time.textContent=f.departure_time;
     button.append(name,time);button.addEventListener('click',()=>searchFlight(f.flight,f.date));box.append(button);
   }
   $('complete-note').textContent=state.completeFlights.length?`${timeLabel(data.checked_at)} 확인 · 선택하면 최신 자료로 다시 조회합니다.`:
