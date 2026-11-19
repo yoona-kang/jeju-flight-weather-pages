@@ -37,7 +37,7 @@ function render() {
   $('flight-update').textContent = `한국공항공사 · ${timeLabel(f.schedule_fetched_at)}${estimated}`;
   const count = f.points.filter(availablePoint).length;
   $('timeline-count').textContent = `${count}/6개 시점 확인`;
-  $('forecast-range').textContent = data.forecast ? `기상청 예보 ${timeLabel(data.forecast.issued_at)} 발표 · ${timeLabel(data.forecast.valid_until)}까지` : '기상청 예보 갱신을 기다리고 있어요.';
+  $('forecast-range').textContent = data.forecast ? (Date.parse(data.forecast.issued_at)>Date.parse(data.generated_at)+120000 ? `수신 예보의 발표시각 확인 중 · ${timeLabel(data.forecast.issued_at)}로 표기됨` : `기상청 예보 ${timeLabel(data.forecast.issued_at)} 발표 · ${timeLabel(data.forecast.valid_until)}까지`) : '기상청 예보 갱신을 기다리고 있어요.';
   renderSelection();
 }
 function renderSelection() {
