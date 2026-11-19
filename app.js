@@ -45,13 +45,18 @@ function renderSelection() {
   $('selected-horizon').textContent = `출발 ${state.horizon}시간 전`;
   const ready = availablePoint(point);
   $('risk-probability').textContent = ready ? percent(point.probability) : '—';
-  $('risk-label').textContent = ready ? (point.source==='forecast' ? (point.scenario_count>1 ? '변화 예보도 함께 확인하세요' : '최신 예보 반영') : '기준시각 관측 반영') : '자료를 기다리고 있어요';
+  $('risk-label').textContent = ready ? (point.source==='forecast' ? (point.scenario_count>1 ? '변화 예보도 함께 확인하세요' : '최신 예보 반영') : '기준시각 관측 반영') : (point.status_label||'기상자료 확인이 필요해요');
   $('risk-label').classList.toggle('low', ready && point.source==='forecast');
-  if (!ready) $('risk-copy').textContent = point.reason || '해당 시점의 기상자료가 준비되면 표시됩니다.';
+  if (!ready) {
+    const names={wind_direction_deg:'풍향',wind_speed_kt:'풍속',visibility_m:'시정',present_weather_code:'일기현상',temperature_c:'기온',dewpoint_c:'이슬점',sea_level_pressure_hpa:'해면기압',station_pressure_hpa:'현지기압',rainfall_mm:'강수량'};
+    const missing=[...new Set((point.missing_features||[]).map(f=>names[f]||'구름 항목'))];
+    $('risk-copy').textContent = (point.reason || '해당 시점의 기상 입력을 확인하고 있습니다.') + (missing.length?' 부족한 항목: '+missing.join('·')+'.':'');
+  }
   else {
     const range = point.probability_range;
     $('risk-copy').textContent = range && range[1] - range[0] >= .01 ? `일시적인 기상 변화까지 고려한 모델 추정 범위는 ${percent(range[0])}–${percent(range[1])}%입니다.` : '기상청의 최신 자료를 반영한 AI 추정값입니다. 실제 운항정보도 함께 확인하세요.';
   }
+  if (ready && point.imputed_fields?.length) $('risk-copy').textContent += ' 미보고 구름 항목을 보완한 추정값입니다.';
   renderChart(); renderButtons(); renderWeather(point);
 }
 function renderButtons() {
@@ -61,7 +66,7 @@ function renderButtons() {
     const button = document.createElement('button'); button.type = 'button';
     button.className = `horizon-button${h===state.horizon?' active':''}${ready?'':' unavailable'}`;
     button.textContent = `${h}시간 전`; button.setAttribute('aria-pressed',String(h===state.horizon));
-    button.setAttribute('aria-label',`출발 ${h}시간 전, ${ready?percent(point.probability)+'퍼센트':'자료 대기'}`);
+    button.setAttribute('aria-label',`출발 ${h}시간 전, ${ready?percent(point.probability)+'퍼센트':(point?.status_label||'기상자료 확인')}`);
     button.addEventListener('click',()=>{state.horizon=h;renderSelection();}); box.append(button);
   }
 }
@@ -81,7 +86,7 @@ function renderChart() {
   for (const p of points) {
     const selected = p.horizon===state.horizon, ready=availablePoint(p);
     markup += `<text x="${x(p.horizon)}" y="${H-((compact&&p.horizon===4)?26:9)}" text-anchor="middle" fill="#87997c" font-size="12">${p.horizon}h</text>`;
-    if (!ready) {markup += `<text x="${x(p.horizon)}" y="${H-B-10}" text-anchor="middle" fill="#a4af9a" font-size="12">대기</text>`;continue;}
+    if (!ready) {markup += `<text x="${x(p.horizon)}" y="${H-B-10}" text-anchor="middle" fill="#a4af9a" font-size="12">미제공</text>`;continue;}
     if(selected) markup += `<line x1="${x(p.horizon)}" x2="${x(p.horizon)}" y1="${T}" y2="${H-B}" stroke="#bfd0ab" stroke-dasharray="3 4"/><circle cx="${x(p.horizon)}" cy="${y(p.probability)}" r="11" fill="#bace9c" opacity=".35"/>`;
     markup += `<circle class="chart-point" data-horizon="${p.horizon}" cx="${x(p.horizon)}" cy="${y(p.probability)}" r="${selected?5:4}" fill="${p.source==='forecast'?'#537b3c':'#fff'}" stroke="#7b9c5e" stroke-width="2" role="button" tabindex="0" aria-label="출발 ${p.horizon}시간 전 ${percent(p.probability)}퍼센트"/>`;
   }
@@ -96,7 +101,7 @@ function renderChart() {
 function renderWeather(point) {
   const ready = availablePoint(point), box=$('weather-grid');box.replaceChildren();
   $('weather-time').textContent=timeLabel(point.input_at);
-  $('weather-source').textContent=ready?point.source_label:'기상자료 대기 중';
+  $('weather-source').textContent=ready?point.source_label:(point.status_label||'기상자료 확인');
   const specs=[{field:'wind_speed_kt',label:'풍속',icon:'≋',unit:'kt'}, {field:'visibility_m',label:'시정',icon:'◉',unit:'km',factor:.001}, {field:'temperature_c',label:'기온',icon:'♧',unit:'°C'}, {field:'rainfall_mm',label:'시간 강수량',icon:'☂',unit:'mm'}];
   for(const s of specs){
     const tile=document.createElement('div');tile.className='weather-tile';
@@ -109,9 +114,10 @@ function renderWeather(point) {
     if(ready){const fieldSource=point.feature_sources[s.field];source.textContent=fieldSource?.method==='persistence'?'관측 보완':fieldSource?.source.includes('FORECAST')||fieldSource?.source==='KMA_TAF'?'예보':'관측';}
     tile.append(icon,label,strong,source);box.append(tile);
   }
-  if(!ready) $('weather-note').textContent=point.reason||'기상자료가 준비되면 표시됩니다.';
+  if(!ready) $('weather-note').textContent=point.reason||'해당 시점의 기상 입력을 확인하고 있습니다.';
   else if(point.source==='forecast') $('weather-note').textContent=`${timeLabel(point.forecast_issued_at)} 발표 예보 기준. 일부 세부 항목은 최근 공항 관측으로 보완했습니다.${point.weather_extras?.wind_gust_kt?' 예상 돌풍 '+point.weather_extras.wind_gust_kt.toFixed(0)+'kt.':''}`;
   else $('weather-note').textContent=`${timeLabel(point.weather_at)}까지의 공항 관측으로 계산한 값입니다.`;
+  if(ready && point.imputed_fields?.length) $('weather-note').textContent+=` 미보고 구름 항목 ${point.imputed_fields.length}개는 학습자료의 대표값으로 보완했습니다.`;
 }
 async function searchFlight(number,date,{background=false}={}) {
   number=normalizeFlight(number);
