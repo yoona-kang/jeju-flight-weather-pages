@@ -1,7 +1,7 @@
 import { resolveApiURL } from './api-client.js';
 import { HORIZONS, normalizeFlight, pointAt, percent, availablePoint, validatePrediction } from './data-helpers.js';
 const $ = id => document.getElementById(id);
-const state = { result: null, horizon: null, request: 0, controller: null, suggestions: [], timer: null, dateRequest: 0 };
+const state = { result: null, horizon: null, request: 0, controller: null, suggestions: [], timer: null, dateRequest: 0, completeTicket: 0, completeDate: null, completeFlights: [], completeTimer: null };
 const fmt = (value, options) => new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', ...options }).format(new Date(value));
 const timeLabel = value => value ? `${fmt(value,{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} KST` : '확인 중';
 function empty(title, message, retry = false) {
@@ -25,6 +25,37 @@ function suggestions(flights) {
     button.append(title,when); button.addEventListener('click',()=>searchFlight(f.flight,f.date)); box.append(button);
   }
 }
+function renderCompleteFlights(data) {
+  const box=$('complete-flights');box.replaceChildren();
+  for(const f of state.completeFlights){
+    const button=document.createElement('button');button.type='button';button.className='example-button complete-flight';
+    const name=document.createElement('b');name.textContent=`${f.flight} · ${f.destination}`;
+    const time=document.createElement('span');time.textContent=`${f.departure_time} · 6/6 확인`;
+    button.append(name,time);button.addEventListener('click',()=>searchFlight(f.flight,f.date));box.append(button);
+  }
+  $('complete-note').textContent=state.completeFlights.length?`${timeLabel(data.checked_at)} 확인 · 선택하면 최신 자료로 다시 조회합니다.`:
+    `현재 확인한 ${data.scanned_count}편에서는 6개 시점을 모두 계산할 수 있는 항공편을 찾지 못했습니다. 5분 뒤 다시 확인합니다.`;
+}
+async function loadCompleteFlights(date) {
+  const ticket=++state.completeTicket;state.completeDate=date;clearTimeout(state.completeTimer);
+  state.completeFlights=[];$('complete-flights').replaceChildren();$('complete-note').textContent='6개 시점이 모두 계산되는 항공편을 확인하고 있어요.';
+  try{
+    const data=await api(`api/complete-flights?${new URLSearchParams({date})}`,AbortSignal.timeout(60000));
+    if(ticket!==state.completeTicket)return;
+    if(!Array.isArray(data.flights)||Date.parse(data.expires_at)<=Date.now())throw new Error('확인 결과를 다시 갱신해야 합니다.');
+    state.completeFlights=data.flights.filter(f=>f.available_points===6&&f.date===date&&Date.parse(f.scheduled_at)>Date.now());
+    renderCompleteFlights(data);
+    state.completeTimer=setTimeout(()=>{
+      state.completeFlights=[];$('complete-flights').replaceChildren();$('complete-note').textContent='항공편 제공 상태를 다시 확인하고 있어요.';
+      if(!document.hidden)loadCompleteFlights(state.completeDate);
+    },Math.max(5000,Date.parse(data.expires_at)-Date.now()));
+  }catch(error){
+    if(ticket!==state.completeTicket)return;
+    $('complete-note').textContent='항공편의 6개 시점 제공 여부를 확인하지 못했습니다. 잠시 후 다시 확인합니다.';
+    state.completeTimer=setTimeout(()=>{if(!document.hidden)loadCompleteFlights(date);},60000);
+  }
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.completeDate&&!state.completeFlights.length)loadCompleteFlights(state.completeDate);});
 function render() {
   const data = state.result, f = data.flight;
   $('loading').hidden = true; $('empty-state').hidden = true; $('flight-result').hidden = false;
@@ -135,6 +166,8 @@ async function searchFlight(number,date,{background=false}={}) {
     const data=validatePrediction(await api(`api/predict?${new URLSearchParams({flight:number,date})}`,controller.signal));
     if(ticket!==state.request)return;
     state.result=data;state.horizon=data.selected_horizon??24;render();
+    if(state.completeDate!==date)loadCompleteFlights(date);
+    else if(data.flight.points.some(p=>!availablePoint(p))&&state.completeFlights.some(f=>f.flight===data.flight.flight)){state.completeFlights=state.completeFlights.filter(f=>f.flight!==data.flight.flight);renderCompleteFlights({checked_at:data.generated_at,scanned_count:0});}
     history.replaceState(null,'',`${location.pathname}?${new URLSearchParams({flight:data.flight.flight,date})}`);
     $('search-message').textContent=`${timeLabel(data.generated_at)} 확인 · 5분마다 자동 갱신`;
   } catch(error) {
@@ -148,6 +181,7 @@ $('retry-search').addEventListener('click',()=>searchFlight($('flight-number').v
 $('refresh-button').addEventListener('click',()=>searchFlight($('flight-number').value,$('departure-date').value,{background:true}));
 $('departure-date').addEventListener('change',async()=>{
   const ticket=++state.dateRequest,date=$('departure-date').value;
+  loadCompleteFlights(date);
   try{const data=await api(`api/flights?${new URLSearchParams({date})}`);if(ticket!==state.dateRequest)return;suggestions(data.flights.filter(f=>new Date(f.scheduled_at)>new Date()&&f.operation_status!=='결항'&&f.operation_status!=='출발'));$('schedule-note').textContent=`한국공항공사 · ${data.flights.length}편 조회`;}catch(error){if(ticket===state.dateRequest){suggestions([]);$('schedule-note').textContent=error.message;}}
 });
 for(const button of document.querySelectorAll('[data-open="about"]'))button.addEventListener('click',()=>$('about-dialog').showModal());
@@ -163,7 +197,7 @@ async function boot(){
     const q=new URLSearchParams(location.search);
     if(q.has('flight')&&q.has('date'))await searchFlight(q.get('flight'),q.get('date'));
     else if(data.suggestions.length)await searchFlight(data.suggestions[0].flight,data.suggestions[0].date);
-    else empty('항공편을 조회해 주세요.',data.errors[0]?.message||'제주 출발 항공편명과 탑승 날짜를 입력해 주세요.');
+    else {empty('항공편을 조회해 주세요.',data.errors[0]?.message||'제주 출발 항공편명과 탑승 날짜를 입력해 주세요.');loadCompleteFlights(data.today_kst);}
     state.timer=setInterval(()=>{if(!document.hidden&&state.result&&!$('search-button').disabled&&normalizeFlight($('flight-number').value)===state.result.flight.flight&&$('departure-date').value===state.result.flight.date)searchFlight(state.result.flight.flight,state.result.flight.date,{background:true});},data.refresh_seconds*1000);
   }catch(error){
     const configured=error.code!=='api_not_configured';

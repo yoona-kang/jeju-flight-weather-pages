@@ -28,3 +28,6 @@ input{height:50px}.input-wrap svg{top:16px}
  .example-button{padding:9px 7px}.example-button b{line-height:1.65}
  .footer p{font-size:11px;line-height:1.8}
 }
+
+.complete-zone .sample-heading{margin:0 0 12px;font-weight:650;color:#3d6254;font-size:14px;line-height:1.6}.complete-flight{border:1px solid #dce7d8}.complete-flight span{color:#52754c}.complete-zone .live-search-note{line-height:1.8}
+@media(max-width:680px){#complete-flights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.complete-flight{width:100%}.complete-zone .sample-heading{font-size:14px}}

@@ -1,5 +1,5 @@
 export function resolveApiURL(path, config = {}, documentBase = globalThis.document?.baseURI) {
-  if (!/^api\/(health|bootstrap|flights|predict)(\?|$)/.test(path)) throw new Error('지원하지 않는 조회 경로입니다.');
+  if (!/^api\/(health|bootstrap|flights|complete-flights|predict)(\?|$)/.test(path)) throw new Error('지원하지 않는 조회 경로입니다.');
   if (config.apiMode !== 'external') return new URL(path, documentBase).href;
   if (!config.apiBaseUrl) {
     const error = new Error('실시간 항공편 조회 연결을 준비하고 있습니다. 연결이 완료되면 이 화면에서 조회할 수 있어요.');
