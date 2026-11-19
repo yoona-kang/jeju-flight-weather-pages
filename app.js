@@ -34,7 +34,7 @@ function renderCompleteFlights(data) {
     button.append(name,time);button.addEventListener('click',()=>searchFlight(f.flight,f.date));box.append(button);
   }
   $('complete-note').textContent=state.completeFlights.length?`${timeLabel(data.checked_at)} 확인 · 선택하면 최신 자료로 다시 조회합니다.`:
-    `현재 확인한 ${data.scanned_count}편에서는 6개 시점을 모두 계산할 수 있는 항공편을 찾지 못했습니다. 5분 뒤 다시 확인합니다.`;
+    (data.unavailable_reason_counts?.forecast_not_yet_issued?`수신 예보의 발표시각을 확인하고 있습니다. ${timeLabel(data.checked_at)} 기준으로 6개 시점 모두 확인된 항공편은 없으며, 5분 뒤 다시 확인합니다.`:`현재 확인한 ${data.scanned_count}편에서는 6개 시점을 모두 계산할 수 있는 항공편을 찾지 못했습니다. 5분 뒤 다시 확인합니다.`);
 }
 async function loadCompleteFlights(date) {
   const ticket=++state.completeTicket;state.completeDate=date;clearTimeout(state.completeTimer);
@@ -167,7 +167,7 @@ async function searchFlight(number,date,{background=false}={}) {
     if(ticket!==state.request)return;
     state.result=data;state.horizon=data.selected_horizon??24;render();
     if(state.completeDate!==date)loadCompleteFlights(date);
-    else if(data.flight.points.some(p=>!availablePoint(p))&&state.completeFlights.some(f=>f.flight===data.flight.flight)){state.completeFlights=state.completeFlights.filter(f=>f.flight!==data.flight.flight);renderCompleteFlights({checked_at:data.generated_at,scanned_count:0});}
+    else if(data.flight.points.some(p=>!availablePoint(p))&&state.completeFlights.some(f=>f.flight===data.flight.flight)){state.completeFlights=state.completeFlights.filter(f=>f.flight!==data.flight.flight);renderCompleteFlights({checked_at:data.generated_at,scanned_count:0});$('complete-note').textContent='선택한 항공편의 자료 상태가 변경되어 목록에서 제외했습니다. 다음 확인 때 제공 여부를 다시 검사합니다.';}
     history.replaceState(null,'',`${location.pathname}?${new URLSearchParams({flight:data.flight.flight,date})}`);
     $('search-message').textContent=`${timeLabel(data.generated_at)} 확인 · 5분마다 자동 갱신`;
   } catch(error) {
