@@ -45,17 +45,18 @@ function renderSelection() {
   $('selected-horizon').textContent = `출발 ${state.horizon}시간 전`;
   const ready = availablePoint(point);
   $('risk-probability').textContent = ready ? percent(point.probability) : '—';
-  $('risk-label').textContent = ready ? (point.source==='forecast' ? (point.scenario_count>1 ? '변화 예보도 함께 확인하세요' : '최신 예보 반영') : '기준시각 관측 반영') : (point.status_label||'기상자료 확인이 필요해요');
+  $('risk-label').textContent = ready ? (point.source==='forecast' ? (point.scenario_count>1 ? '변화 예보도 함께 확인하세요' : '최신 예보 반영') : (point.interpolated_fields?.length?'사후 보간 반영':'기준시각 관측 반영')) : (point.status_label||'기상자료 확인이 필요해요');
   $('risk-label').classList.toggle('low', ready && point.source==='forecast');
   if (!ready) {
     const names={wind_direction_deg:'풍향',wind_speed_kt:'풍속',visibility_m:'시정',present_weather_code:'일기현상',temperature_c:'기온',dewpoint_c:'이슬점',sea_level_pressure_hpa:'해면기압',station_pressure_hpa:'현지기압',rainfall_mm:'강수량'};
-    const missing=[...new Set((point.missing_features||[]).map(f=>names[f]||'구름 항목'))];
+    const missing=[...new Set((point.missing_features||[]).map(f=>{const gap=point.interpolation_gaps?.[f];return (names[f]||'구름 항목')+(gap?.reason==='endpoint_span_exceeded'?`(보간 간격 ${gap.span_hours.toFixed(0)}시간, 허용 ${gap.maximum_hours}시간)`:'');}))];
     $('risk-copy').textContent = (point.reason || '해당 시점의 기상 입력을 확인하고 있습니다.') + (missing.length?' 부족한 항목: '+missing.join('·')+'.':'');
   }
   else {
     const range = point.probability_range;
     $('risk-copy').textContent = range && range[1] - range[0] >= .01 ? `일시적인 기상 변화까지 고려한 모델 추정 범위는 ${percent(range[0])}–${percent(range[1])}%입니다.` : '기상청의 최신 자료를 반영한 AI 추정값입니다. 실제 운항정보도 함께 확인하세요.';
   }
+  if (ready && point.source==='observation') $('risk-copy').textContent=point.interpolated_fields?.length?'조회시점까지 확보한 앞뒤 관측으로 일부 입력을 사후 보간했습니다. 당시 발표된 예측 이력은 아닙니다.':'해당 기준시각의 관측을 바탕으로 다시 계산한 모델 추정값입니다.';
   if (ready && point.imputed_fields?.length) $('risk-copy').textContent += ' 미보고 구름 항목을 보완한 추정값입니다.';
   renderChart(); renderButtons(); renderWeather(point);
 }
@@ -76,7 +77,7 @@ function renderChart() {
   const H=compact?236:250,L=43,R=18,T=18,B=compact?48:34;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   const x = h => L + ((48-h)/46)*(W-L-R), y = p => T+(1-p)*(H-T-B);
-  let markup = '<title id="chart-title">출발 전 시점별 기상 차질 추정</title><desc id="chart-description">지난 시점은 해당 시각의 관측으로 다시 계산하고, 앞으로의 시점은 최신 예보로 추정합니다. 빈 시점과 시점 사이에는 예측값을 만들지 않습니다.</desc>';
+  let markup = '<title id="chart-title">출발 전 시점별 기상 차질 추정</title><desc id="chart-description">지난 시점은 조회시각까지 확보한 관측으로 재구성하며, 연속형 입력의 짧은 결측은 사후 보간합니다. 앞으로의 시점은 최신 예보로 추정합니다. 빈 시점과 시점 사이에는 예측값을 만들지 않습니다.</desc>';
   for (const t of [0,.25,.5,.75,1]) markup += `<line x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}" stroke="#e9eee3" stroke-dasharray="3 5"/><text x="${L-9}" y="${y(t)+3}" text-anchor="end" fill="#8b9c80" font-size="12">${t*100}${t===1?'%':''}</text>`;
   const points = HORIZONS.map(h=>pointAt(state.result.flight,h));
   for (let i=1;i<points.length;i++) if (availablePoint(points[i-1]) && availablePoint(points[i])) {
@@ -111,12 +112,14 @@ function renderWeather(point) {
     const strong=document.createElement('strong');strong.textContent=Number.isFinite(value)?(s.field==='visibility_m'&&value>=10000?'10+':(value*(s.factor??1)).toFixed(1)):'—';
     const unit=document.createElement('small');unit.textContent=s.unit;strong.append(unit);
     const source=document.createElement('span');source.className='weather-value-source';
-    if(ready){const fieldSource=point.feature_sources[s.field];source.textContent=fieldSource?.method==='persistence'?'관측 보완':fieldSource?.source.includes('FORECAST')||fieldSource?.source==='KMA_TAF'?'예보':'관측';}
+    if(ready){const fieldSource=point.feature_sources[s.field];source.textContent=fieldSource?.method==='retrospective_linear_interpolation'?'사후 보간':['persistence','observed_carry_forward'].includes(fieldSource?.method)?'최근 관측 유지':fieldSource?.source.includes('FORECAST')||fieldSource?.source==='KMA_TAF'?'예보':'관측';}
     tile.append(icon,label,strong,source);box.append(tile);
   }
   if(!ready) $('weather-note').textContent=point.reason||'해당 시점의 기상 입력을 확인하고 있습니다.';
   else if(point.source==='forecast') $('weather-note').textContent=`${timeLabel(point.forecast_issued_at)} 발표 예보 기준. 일부 세부 항목은 최근 공항 관측으로 보완했습니다.${point.weather_extras?.wind_gust_kt?' 예상 돌풍 '+point.weather_extras.wind_gust_kt.toFixed(0)+'kt.':''}`;
-  else $('weather-note').textContent=`${timeLabel(point.weather_at)}까지의 공항 관측으로 계산한 값입니다.`;
+  else $('weather-note').textContent=point.interpolated_fields?.length?`사후 보간 항목 ${point.interpolated_fields.length}개. 관측 사이가 최대 3시간(강수량 2시간)인 구간만 보간했습니다. 조회시각 이후의 관측은 사용하지 않습니다.`:`${timeLabel(point.weather_at)}까지의 공항 관측을 바탕으로 계산했습니다.`;
+  if(ready && point.source==='observation' && point.carried_fields?.length) $('weather-note').textContent+=' 일부 항목은 기준시각 이전 6시간 이내의 최근 관측을 유지했습니다.';
+  if(ready && point.cached_observation_fields?.length) $('weather-note').textContent+=' 관측 조회 연결이 불안정해 이전에 수집한 실제 관측을 함께 사용했습니다.';
   if(ready && point.imputed_fields?.length) $('weather-note').textContent+=` 미보고 구름 항목 ${point.imputed_fields.length}개는 학습자료의 대표값으로 보완했습니다.`;
 }
 async function searchFlight(number,date,{background=false}={}) {
